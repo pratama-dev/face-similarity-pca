@@ -575,7 +575,3 @@ with tabs[4]:
                     st.warning("⚠️ KURANG MIRIP (wajar karena perbedaan usia)")
             
             st.progress(float(max(0, similarity)))
-            
-            st.info(""" 
-            Nilai similarity yang lebih rendah dari foto orang dewasa adalah hal yang wajar.  
-            Metode deep learning (FaceNet/ArcFace) lebih baik untuk kasus ini.""")
