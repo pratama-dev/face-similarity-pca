@@ -1,23 +1,10 @@
-<<<<<<< HEAD
-streamlit==1.35.0
-opencv-python-headless==4.9.0.80
-numpy==1.26.4
-scikit-learn==1.4.2
-matplotlib==3.8.4
-seaborn==0.13.2
-Pillow==10.3.0
-plotly==5.22.0
-pandas==2.2.2
-joblib==1.4.2
-=======
 streamlit>=1.35.0
 opencv-python-headless>=4.9.0.80
-numpy>=1.26.4
+numpy>=2.0.0
 scikit-learn>=1.5.0
-matplotlib>=3.8.4
+matplotlib>=3.8.0
 seaborn>=0.13.2
 Pillow>=10.3.0
 plotly>=5.22.0
-pandas>=2.2.2
-joblib>=1.4.2
->>>>>>> 2f2c849f5e23c056285619ef9484ccfdc2a01c1d
+pandas>=2.2.0
+joblib>=1.4.0
