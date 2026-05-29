@@ -579,5 +579,4 @@ with tabs[4]:
             st.info(""" 
             Nilai similarity yang lebih rendah dari foto orang dewasa adalah hal yang wajar.  
             Metode deep learning (FaceNet/ArcFace) lebih baik untuk kasus ini.
->>>>>>> 2f2c849f5e23c056285619ef9484ccfdc2a01c1d
             """)
