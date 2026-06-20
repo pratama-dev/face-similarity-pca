@@ -1,24 +1,7 @@
-"""
-app.py
-=======
-Streamlit App: Verifikasi Wajah dengan Eigenfaces (PCA/SVD)
-
-Diadaptasi dari notebook 'Eigenfaces_Training_Verifikasi_Wajah.ipynb'.
-Karena Streamlit berjalan di server (bukan Colab), upload foto memakai
-st.file_uploader sebagai pengganti google.colab.files.upload(), tapi
-seluruh pipeline pengolahan gambar & perhitungan PCA/kemiripan identik
-dengan notebook aslinya (lihat eigenfaces_utils.py).
-
-Alur:
-1. Upload & latih model dari beberapa foto masa kecil (training)
-2. Upload 1 foto sekarang (query) -> diproyeksikan ke model -> skor kemiripan
-
-Cara menjalankan:
-    streamlit run app.py
-"""
-
 import numpy as np
 import streamlit as st
+import streamlit.components.v1 as components # Untuk trik animasi/scroll
+import base64 # Untuk background image jika perlu, atau embed asset
 
 from eigenfaces_utils import (
     buat_figure_eigenfaces,
@@ -31,237 +14,409 @@ from eigenfaces_utils import (
     verifikasi_foto,
 )
 
+# ===========================================================================
+# 1. Konfigurasi Halaman & Inject CSS Kustom (The Magic Sauce)
+# ===========================================================================
 st.set_page_config(
-    page_title="Verifikasi Wajah - Eigenfaces",
+    page_title="FaceVerify Pro - Eigenfaces",
     page_icon="🧑‍🦱",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
+def local_css():
+    st.markdown("""
+    <style>
+        /* Impor Font Modern */
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+
+        /* Terapkan font ke seluruh app */
+        html, body, [class*="css"]  {
+            font-family: 'Poppins', sans-serif;
+        }
+
+        /* Background Halaman */
+        .stApp {
+            background-color: #f8faff;
+        }
+
+        /* Mengubah gaya Sidebar */
+        [data-testid="stSidebar"] {
+            background-image: linear-gradient(180deg, #2e3192 0%, #1bffff 100%);
+            color: white;
+        }
+        [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {
+            color: white !important;
+        }
+        /* Slider Kustom di Sidebar */
+        .stSlider [data-baseweb="slider"] {
+            margin-bottom: 25px;
+        }
+
+        /* Mengubah Gaya Judul Utama */
+        .main-title {
+            font-weight: 700;
+            color: #1e3a8a;
+            font-size: 3rem !important;
+            margin-bottom: 0px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        .sub-title {
+            color: #6b7280;
+            font-size: 1.2rem;
+            margin-top: 0px;
+            margin-bottom: 30px;
+        }
+
+        /* -- Gaya KARTU (Card Layout) -- */
+        .custom-card {
+            background-color: white;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
+            border: 1px solid #e5e7eb;
+            transition: transform 0.3s ease;
+        }
+        .custom-card:hover {
+            transform: translateY(-5px);
+        }
+        .card-header {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        /* Gaya Khusus Area Upload */
+        [data-testid="stFileUploadDropzone"] {
+            background-color: #eff6ff;
+            border: 2px dashed #3b82f6;
+            border-radius: 15px;
+        }
+
+        /* -- ANIMASI & GAYA TOMBOL UTAMA -- */
+        div.stButton > button:first-child {
+            background: linear-gradient(45deg, #ff00cc, #333399);
+            color: white;
+            font-weight: 600;
+            font-size: 1.1rem;
+            padding: 12px 30px;
+            border-radius: 50px;
+            border: none;
+            box-shadow: 0 4px 15px rgba(51, 51, 153, 0.4);
+            
+            /* Transisi Halus untuk semua properti */
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        /* Efek Hover (Mouse di atas) */
+        div.stButton > button:first-child:hover {
+            box-shadow: 0 6px 20px rgba(51, 51, 153, 0.6);
+            transform: translateY(-2px);
+            background: linear-gradient(45deg, #ff00cc, #4a4ae6); /* Sedikit lebih terang */
+            border: none;
+            color: white;
+        }
+
+        /* Efek Active (Saat Dipencet) - Ini yang diminta user */
+        div.stButton > button:first-child:active {
+            transform: translateY(2px) scale(0.98); /* Terlihat mendem */
+            box-shadow: 0 2px 5px rgba(51, 51, 153, 0.5);
+            background: linear-gradient(45deg, #d400ab, #28287a); /* Sedikit lebih gelap */
+            transition: all 0.1s ease; /* Respon cepat saat klik */
+        }
+        
+        /* Tombol Reset di Sidebar */
+        div.stButton > button[kind="secondary"] {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid white;
+            border-radius: 10px;
+        }
+        div.stButton > button[kind="secondary"]:hover {
+            background: white;
+            color: #2e3192;
+        }
+
+        /* -- Gaya Metrik (Hasil Angka) -- */
+        [data-testid="stMetricValue"] {
+            font-weight: 700;
+            color: #333399;
+        }
+
+        /* -- Kartu Hasil Verifikasi (SUCCESS/ERROR Kustom) -- */
+        .result-card-success {
+            background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%);
+            padding: 25px;
+            border-radius: 15px;
+            border-left: 10px solid #22863a;
+            color: #155724;
+            margin-top: 20px;
+            animation: fadeIn 0.5s;
+        }
+        .result-card-fail {
+            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%);
+            padding: 25px;
+            border-radius: 15px;
+            border-left: 10px solid #cb2431;
+            color: #721c24;
+            margin-top: 20px;
+            animation: fadeIn 0.5s;
+        }
+        
+        /* Animasi Fade In sederhana */
+        @keyframes fadeIn {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 1; transform: translateY(0); }
+        }
+
+    </style>
+    """, unsafe_allow_html=True)
+
+local_css()
+
+# ===========================================================================
+# 2. Logika Utama (Tetap dipertahankan)
+# ===========================================================================
 
 @st.cache_resource
 def load_cascade():
     return get_face_cascade()
 
-
 face_cascade = load_cascade()
 
-# ---------------------------------------------------------------------------
 # Inisialisasi session state
-# ---------------------------------------------------------------------------
-for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi"]:
+for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi", "training_done"]:
     if key not in st.session_state:
         st.session_state[key] = None
 
 # ---------------------------------------------------------------------------
-# Sidebar
+# Sidebar (Dipercantik)
 # ---------------------------------------------------------------------------
-st.sidebar.title("ℹ️ Tentang Aplikasi")
-st.sidebar.markdown(
-    """
-Aplikasi ini mendemonstrasikan **Eigenfaces (PCA/SVD)** untuk verifikasi
-wajah sederhana, diadaptasi dari notebook training & verifikasi wajah.
+with st.sidebar:
+    st.markdown("## ℹ️ FaceVerify Pro")
+    st.markdown(
+        """
+        Aplikasi ini menggunakan teknologi **Eigenfaces (PCA/SVD)** untuk membandingkan 
+        apakah wajah Anda sekarang masih mengenali wajah Anda di masa kecil.
 
-**Alur kerja:**
-1. Upload beberapa foto masa kecil → latih model
-2. Upload 1 foto sekarang → verifikasi terhadap model
+        **Cara Pakai:**
+        1. 📸 Upload foto-foto masa kecil (min. 2)
+        2. ⚙️ Latih AI
+        3. 🔍 Upload foto sekarang & verifikasi
 
-⚠️ *Tujuan edukasi mempelajari PCA/SVD, bukan alat verifikasi identitas
-forensik/hukum.*
-"""
-)
-
-threshold_pct = st.sidebar.slider(
-    "Threshold 'MIRIP' (%)",
-    min_value=50,
-    max_value=95,
-    value=70,
-    step=1,
-    help="Skor kemiripan >= nilai ini dianggap MIRIP (default notebook: 70%).",
-)
-
-if st.session_state.model is not None:
-    m = st.session_state.model
-    st.sidebar.success(
-        f"✅ Model terlatih dari {m['n_foto_training']} foto "
-        f"({m['n_components']} eigenfaces)."
+        ---
+        <small>⚠️ *Hanya untuk edukasi, bukan verifikasi keamanan hukum.*</small>
+        """, unsafe_allow_html=True
     )
-    if st.sidebar.button("🔄 Reset Model"):
-        for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi"]:
-            st.session_state[key] = None
-        st.rerun()
 
-st.title('🧑\u200d🦱➡️🧔 Verifikasi Wajah: "Apakah Foto Sekarang Ini Benar-Benar Aku?"')
-st.caption("Metode: PCA / SVD (Eigenfaces) — Training & Verifikasi")
+    threshold_pct = st.slider(
+        "🎚️ Sensitivitas 'MIRIP' (%)",
+        min_value=50,
+        max_value=95,
+        value=70,
+        step=1,
+        help="Semakin tinggi, semakin sulit dianggap mirip.",
+    )
 
-# ---------------------------------------------------------------------------
-# Langkah 1: Upload & Training
-# ---------------------------------------------------------------------------
-st.header("1️⃣ Upload Foto Masa Kecil (Data Training)")
-st.markdown(
-    "Upload **sebebas mungkin** foto masa kecil kamu — **minimal 2 foto** "
-    "(disarankan 3+ supaya model belajar variasi wajahmu dari berbagai sudut/ekspresi/usia)."
-)
-
-uploaded_training = st.file_uploader(
-    "Upload foto masa kecil (boleh pilih banyak file sekaligus)",
-    type=["jpg", "jpeg", "png"],
-    accept_multiple_files=True,
-    key="uploader_training",
-)
-
-if st.button("🚀 Proses & Latih Model", disabled=not uploaded_training):
-    if len(uploaded_training) < 2:
-        st.error(
-            "Minimal butuh 2 foto training agar PCA bisa dihitung. "
-            "Silakan upload lebih banyak foto."
+    if st.session_state.model is not None:
+        m = st.session_state.model
+        st.markdown("---")
+        st.success(
+            f"✅ **AI Terlatih**\n"
+            f"- {m['n_foto_training']} Foto Kecil\n"
+            f"- {m['n_components']} Eigenfaces"
         )
-    else:
-        if len(uploaded_training) < 3:
-            st.warning(
-                f"Kamu upload {len(uploaded_training)} foto. Disarankan minimal 3 foto "
-                "agar model lebih akurat, tapi proses tetap dilanjutkan."
-            )
+        if st.button("🔄 Reset Sistem"):
+            for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi", "training_done"]:
+                st.session_state[key] = None
+            st.rerun()
 
-        with st.spinner("Memproses foto & melatih model..."):
-            data_training = []
-            gagal = False
-            for i, file in enumerate(uploaded_training):
+# ---------------------------------------------------------------------------
+# Konten Utama
+# ---------------------------------------------------------------------------
+st.markdown('<h1 class="main-title">Wajah Masa Kecil vs Sekarang</h1>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">Mari buktikan dengan Algoritma Eigenfaces (PCA)</p>', unsafe_allow_html=True)
+
+# Layout Kolom Besar (1. Training, 2. Verification)
+col_train, col_verify = st.columns([1, 1], gap="large")
+
+# ===========================================================================
+# LANGKAH 1: TRAINING (Kolom Kiri)
+# ===========================================================================
+with col_train:
+    # Membungkus dalam kartu kustom
+    st.markdown("""
+        <div class="custom-card">
+            <div class="card-header">
+                <span>1️⃣</span> Latih Memori AI (Foto Masa Kecil)
+            </div>
+    """, unsafe_allow_html=True)
+    
+    st.markdown(
+        "Upload minimal **2 foto** masa kecilmu. AI akan mempelajari "
+        "pola wajah dasar kamu."
+    )
+
+    uploaded_training = st.file_uploader(
+        "Pilih foto-foto masa kecil...",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=True,
+        key="uploader_training",
+    )
+
+    # Styling tombol dipencet ditangani CSS (div.stButton...)
+    train_btn = st.button("🚀 Mulai Latih AI", disabled=not uploaded_training)
+
+    if train_btn:
+        if len(uploaded_training) < 2:
+            st.error("⚠️ Butuh minimal 2 foto untuk menghitung PCA.")
+        else:
+            with st.spinner("🧠 AI sedang mempelajari wajah masa kecilmu..."):
+                data_training = []
+                gagal = False
+                for i, file in enumerate(uploaded_training):
+                    try:
+                        hasil = proses_satu_foto(file.name, file.getvalue(), face_cascade)
+                    except ValueError as e:
+                        st.error(str(e))
+                        gagal = True
+                        break
+                    hasil["label"] = f"Kecil {i + 1}"
+                    data_training.append(hasil)
+
+                if not gagal:
+                    model = latih_model(data_training)
+                    st.session_state.data_training = data_training
+                    st.session_state.model = model
+                    st.session_state.data_sekarang = None
+                    st.session_state.hasil_verifikasi = None
+                    st.session_state.training_done = True
+                    st.success("✅ Proses Latihan Selesai!")
+
+    # Penutup Kartu
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # Hasil Training (Tampilkan di bawah kartu jika ada)
+    if st.session_state.data_training is not None:
+        with st.expander("📋 Lihat Hasil Pemrosesan Wajah (Grayscale)", expanded=True):
+            data_training = st.session_state.data_training
+            model = st.session_state.model
+
+            st.pyplot(buat_grid_foto(data_training, ""))
+            
+            st.markdown("---")
+            st.markdown("**'Wajah Rata-rata' & Fitur Utama (Eigenfaces)**")
+            st.pyplot(buat_figure_eigenfaces(model))
+            
+            with st.expander("🔬 Detail Teknis Data", expanded=False):
+                st.write(f"Variansi Total: {np.sum(model['pca'].explained_variance_ratio_) * 100:.2f}%")
+                st.write(f"Skala Variasi Alami: {model['skala_variasi']:.4f}")
+
+
+# ===========================================================================
+# LANGKAH 2: VERIFIKASI (Kolom Kanan)
+# ===========================================================================
+with col_verify:
+    st.markdown("""
+        <div class="custom-card">
+            <div class="card-header">
+                <span>2️⃣</span> Uji Verifikasi (Foto Sekarang)
+            </div>
+    """, unsafe_allow_html=True)
+
+    if st.session_state.model is None:
+        st.info("👈 Selesaikan Langkah 1 dulu untuk melatih AI.")
+    else:
+        uploaded_sekarang = st.file_uploader(
+            "Upload 1 foto Anda sekarang...",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=False,
+            key="uploader_sekarang",
+        )
+
+        verify_btn = st.button("🔍 Verifikasi Wajah", disabled=uploaded_sekarang is None)
+
+        if verify_btn:
+            with st.spinner("🕵️ Membandingkan dengan memori masa kecil..."):
                 try:
-                    hasil = proses_satu_foto(file.name, file.getvalue(), face_cascade)
+                    data_sekarang = proses_satu_foto(
+                        uploaded_sekarang.name, uploaded_sekarang.getvalue(), face_cascade
+                    )
+                    data_sekarang["label"] = "Foto Sekarang"
+                    hasil_verifikasi = verifikasi_foto(st.session_state.model, data_sekarang)
+                    st.session_state.data_sekarang = data_sekarang
+                    st.session_state.hasil_verifikasi = hasil_verifikasi
                 except ValueError as e:
                     st.error(str(e))
-                    gagal = True
-                    break
-                hasil["label"] = f"Kecil {i + 1}"
-                data_training.append(hasil)
 
-            if not gagal:
-                model = latih_model(data_training)
-                st.session_state.data_training = data_training
-                st.session_state.model = model
-                # foto sekarang & hasil verifikasi sebelumnya jadi tidak relevan lagi
-                st.session_state.data_sekarang = None
-                st.session_state.hasil_verifikasi = None
+    # Penutup Kartu
+    st.markdown("</div>", unsafe_allow_html=True)
 
-        if not gagal:
-            st.success(f"✅ {len(data_training)} foto training berhasil diproses & model dilatih.")
-
-if st.session_state.data_training is not None:
-    data_training = st.session_state.data_training
-    model = st.session_state.model
-
-    with st.expander("📋 Status deteksi wajah per foto", expanded=False):
-        for d in data_training:
-            status = "✅ wajah terdeteksi" if d["face_terdeteksi"] else "⚠️ fallback full image"
-            st.write(f"**{d['label']}** ({d['filename']}): {status}")
-
-    st.subheader("Foto Training Setelah Preprocessing (Grayscale 100×100)")
-    fig_grid = buat_grid_foto(data_training, "Foto Masa Kecil Setelah Preprocessing")
-    st.pyplot(fig_grid)
-
-    st.subheader("Mean Face & Eigenfaces (Hasil Training)")
-    fig_eigen = buat_figure_eigenfaces(model)
-    st.pyplot(fig_eigen)
-
-    with st.expander("📐 Detail Variansi Eigenfaces (untuk laporan)", expanded=False):
-        pca = model["pca"]
-        for i, variansi in enumerate(pca.explained_variance_ratio_):
-            st.write(
-                f"• Eigenface {i + 1} (Komponen Utama {i + 1}): menjelaskan sekitar "
-                f"**{variansi * 100:.2f}%** variansi data."
-            )
-        st.write(
-            f"**Total akumulasi ragam informasi:** "
-            f"{np.sum(pca.explained_variance_ratio_) * 100:.2f}%"
-        )
-
-    with st.expander("🎯 Centroid & Variasi Alami Training", expanded=False):
-        st.write(
-            f"Rata-rata variasi alami antar foto training ke centroid: "
-            f"**{model['skala_variasi']:.4f}**"
-        )
-        st.write("Jarak masing-masing foto training ke centroid:")
-        st.write(np.round(model["intra_dists"], 3))
-
-st.divider()
-
-# ---------------------------------------------------------------------------
-# Langkah 2: Upload & Verifikasi
-# ---------------------------------------------------------------------------
-st.header("2️⃣ Upload Foto Sekarang (Query) & Verifikasi")
-
-if st.session_state.model is None:
-    st.info("⬆️ Latih model dari foto masa kecil terlebih dahulu sebelum verifikasi.")
-else:
-    uploaded_sekarang = st.file_uploader(
-        "Upload 1 foto sekarang",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=False,
-        key="uploader_sekarang",
-    )
-
-    if st.button("🔍 Verifikasi", disabled=uploaded_sekarang is None):
-        with st.spinner("Memproses & memproyeksikan foto ke model..."):
-            try:
-                data_sekarang = proses_satu_foto(
-                    uploaded_sekarang.name, uploaded_sekarang.getvalue(), face_cascade
-                )
-                data_sekarang["label"] = "Foto Sekarang"
-                hasil_verifikasi = verifikasi_foto(st.session_state.model, data_sekarang)
-                st.session_state.data_sekarang = data_sekarang
-                st.session_state.hasil_verifikasi = hasil_verifikasi
-            except ValueError as e:
-                st.error(str(e))
-
+    # -----------------------------------------------------------------------
+    # Area Hasil Verifikasi (Colorful & Animated)
+    # -----------------------------------------------------------------------
     if st.session_state.data_sekarang is not None and st.session_state.hasil_verifikasi is not None:
         model = st.session_state.model
         data_sekarang = st.session_state.data_sekarang
         hasil_verifikasi = st.session_state.hasil_verifikasi
+        skor_akhir = hasil_verifikasi["skor_akhir"]
+        
+        # Trik scroll otomatis ke hasil
+        components.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 500);</script>", height=0)
 
-        status = "✅ wajah terdeteksi" if data_sekarang["face_terdeteksi"] else "⚠️ fallback full image"
-        st.write(f"**Status deteksi wajah:** {status}")
-
-        st.subheader("Foto Sekarang vs Mean Face Training")
+        st.markdown("### 📊 Perbandingan & Skor")
+        
+        # Plot Perbandingan
         fig_compare = buat_figure_perbandingan(model["mean_face_img"], data_sekarang)
         st.pyplot(fig_compare)
 
-        st.subheader("Hasil Proyeksi & Kemiripan")
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Cosine Similarity", f"{hasil_verifikasi['cos_pct']:.2f}%")
-        col2.metric("Euclidean (relatif)", f"{hasil_verifikasi['eucl_pct']:.2f}%")
-        col3.metric("Skor Akhir", f"{hasil_verifikasi['skor_akhir']:.2f}%")
+        # Metrik Berwarna
+        st.markdown("---")
+        c1, c2 = st.columns(2)
+        c1.metric("Skor Kemiripan Akhir", f"{skor_akhir:.2f}%")
+        c2.metric("Threshold Dibutuhkan", f"{threshold_pct:.0f}%")
 
-        skor_akhir = hasil_verifikasi["skor_akhir"]
-        mirip = (skor_akhir / 100) >= (threshold_pct / 100)
-        kesimpulan = (
-            "MIRIP ✅ (pola wajah sekarang konsisten dengan foto-foto masa kecil yang ditraining)"
-            if mirip
-            else "TIDAK MIRIP ❌ (pola wajah sekarang menyimpang dari foto-foto masa kecil yang ditraining)"
-        )
-
-        st.subheader("📊 Hasil Verifikasi")
-        st.write(f"Jumlah foto training (masa kecil): **{model['n_foto_training']}**")
-        st.write(f"Persentase kemiripan: **{skor_akhir:.2f}%**")
-        st.write(f"Threshold: **{threshold_pct:.0f}%**")
-        if mirip:
-            st.success(f"Kesimpulan: {kesimpulan}")
-        else:
-            st.error(f"Kesimpulan: {kesimpulan}")
-
-        st.subheader("Visualisasi Persentase Kemiripan")
+        # Visualisasi Gauge
         fig_hasil = buat_figure_hasil(skor_akhir, threshold_pct)
         st.pyplot(fig_hasil)
 
-st.divider()
+        # KESIMPULAN DENGAN KARTU KUSTOM
+        mirip = (skor_akhir / 100) >= (threshold_pct / 100)
+        
+        if mirip:
+            st.markdown(f"""
+                <div class="result-card-success">
+                    <h3 style="color: #155724; margin-top:0;"> HASIL: MIRIP!</h3>
+                    <p>AI mengenali pola wajah masa kecil Anda pada foto sekarang. 
+                    Anda masih terlihat seperti diri Anda yang dulu (konsisten).</p>
+                    <strong style="font-size: 1.2rem;">Skor: {skor_akhir:.2f}%</strong>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+                <div class="result-card-fail">
+                    <h3 style="color: #721c24; margin-top:0;"> HASIL: TIDAK MIRIP</h3>
+                    <p>AI menilai pola wajah sekarang terlalu berbeda dengan data latihan masa kecil. 
+                    (Faktor usia, sudut, atau pencahayaan mungkin berpengaruh).</p>
+                    <strong style="font-size: 1.2rem;">Skor: {skor_akhir:.2f}%</strong>
+                </div>
+            """, unsafe_allow_html=True)
+
+st.markdown("<br><hr><br>", unsafe_allow_html=True)
 st.markdown(
     """
-### 📝 Catatan Penting Tentang Hasil
-- Aplikasi ini untuk **tujuan edukasi** mempelajari PCA/SVD (Eigenfaces) dalam skema
-  training/verifikasi sederhana, **bukan** alat verifikasi identitas yang sahih secara
-  forensik/hukum.
-- Model ("centroid" + "skala variasi") dibangun **hanya dari foto training masa kecil**;
-  foto sekarang cuma diproyeksikan ke model itu — ini meniru alur *train lalu test* yang benar.
-- Makin banyak & makin beragam foto training (sudut, ekspresi, pencahayaan, rentang usia),
-  makin baik estimasi kemiripannya.
-"""
+    <div style="text-align: center; color: #6b7280; padding: 20px; background-color: #f1f5f9; border-radius: 10px;">
+        <h4> Catatan Edukasi</h4>
+        Metode Eigenfaces menggunakan analisis statistik (PCA) untuk mencari komponen utama wajah. 
+        Makin banyak & beragam foto training, makin akurat model mengenali variasi wajah Anda.
+    </div>
+    <br>
+    """, unsafe_allow_html=True
 )
