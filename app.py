@@ -1,577 +1,267 @@
-<<<<<<< HEAD
-import streamlit as st
-import numpy as np
-import cv2
-from PIL import Image
-import matplotlib.pyplot as plt
-import os
-import joblib
-
-from preprocessing import detect_and_crop_face, load_and_preprocess
-from pca_model import (load_dataset, train_pca, compare_two_faces,
-                       recognize_face, save_model, load_model)
-from eda import (plot_class_distribution, plot_explained_variance,
-                 plot_eigenfaces, plot_pca_scatter, plot_mean_face)
-
-# ===================== CONFIG =====================
-st.set_page_config(
-    page_title="Face Similarity PCA",
-    page_icon="👤",
-    layout="wide"
-)
-
-MODEL_PATH = "models/pca_model.pkl"
-
-# ===================== SIDEBAR =====================
-st.sidebar.title("⚙️ Konfigurasi")
-n_components = st.sidebar.slider("Jumlah Komponen PCA", 10, 150, 50)
-threshold = st.sidebar.slider("Threshold Similarity", 0.5, 1.0, 0.80, 0.01)
-dataset_path = st.sidebar.text_input("Path Dataset Train", "dataset/train")
-
-# ===================== MAIN =====================
-st.title("👤 Face Similarity Detection")
-st.markdown("**Metode:** PCA/SVD (Eigenfaces) | **Framework:** Streamlit")
-
-tabs = st.tabs(["🏋️ Training", "📊 EDA", 
-                "🔍 Bandingkan 2 Wajah", "🎯 Identifikasi Wajah",
-                "👶 Masa Kecil vs Dewasa"])
-
-# ===================== TAB 1: TRAINING =====================
-with tabs[0]:
-    st.header("Training Model PCA")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info(f"Dataset path: `{dataset_path}`")
-        if st.button("🚀 Mulai Training", type="primary"):
-            with st.spinner("Memuat dataset..."):
-                if not os.path.exists(dataset_path):
-                    st.error("Folder dataset tidak ditemukan!")
-                    st.stop()
-                
-                X, labels, paths = load_dataset(dataset_path)
-                st.success(f"✅ Dataset dimuat: {len(X)} gambar, "
-                           f"{len(set(labels))} orang")
-            
-            with st.spinner("Melatih PCA..."):
-                pca, X_pca = train_pca(X, n_components=n_components)
-                save_model(pca, X_pca, labels)
-                
-                st.session_state['pca'] = pca
-                st.session_state['X_pca'] = X_pca
-                st.session_state['labels'] = labels
-                st.session_state['X_raw'] = X
-                
-                total_var = np.sum(pca.explained_variance_ratio_) * 100
-                st.success(f"✅ PCA selesai! Total variance: {total_var:.1f}%")
-    
-    with col2:
-        st.subheader("Info Model")
-        if 'pca' in st.session_state:
-            pca = st.session_state['pca']
-            st.metric("Jumlah Komponen", n_components)
-            st.metric("Total Gambar", len(st.session_state['labels']))
-            st.metric("Total Orang", len(set(st.session_state['labels'])))
-            st.metric("Explained Variance",
-                      f"{np.sum(pca.explained_variance_ratio_)*100:.1f}%")
-        else:
-            # Coba load model tersimpan
-            if os.path.exists(MODEL_PATH):
-                pca, X_pca, labels = load_model(MODEL_PATH)
-                st.session_state['pca'] = pca
-                st.session_state['X_pca'] = X_pca
-                st.session_state['labels'] = labels
-                st.info("Model sebelumnya berhasil dimuat!")
-
-# ===================== TAB 2: EDA =====================
-with tabs[1]:
-    st.header("📊 Exploratory Data Analysis")
-    
-    if 'pca' not in st.session_state:
-        st.warning("⚠️ Latih model terlebih dahulu di tab Training!")
-    else:
-        pca = st.session_state['pca']
-        X_pca = st.session_state['X_pca']
-        labels = st.session_state['labels']
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Distribusi Dataset")
-            fig1 = plot_class_distribution(labels)
-            st.plotly_chart(fig1, use_container_width=True)
-        
-        with col2:
-            st.subheader("Explained Variance")
-            fig2 = plot_explained_variance(pca)
-            st.plotly_chart(fig2, use_container_width=True)
-        
-        st.subheader("Scatter Plot Ruang PCA")
-        fig3 = plot_pca_scatter(X_pca, labels)
-        st.plotly_chart(fig3, use_container_width=True)
-        
-        col3, col4 = st.columns(2)
-        with col3:
-            st.subheader("Eigenfaces")
-            if 'X_raw' in st.session_state:
-                fig4 = plot_eigenfaces(pca)
-                st.pyplot(fig4)
-        
-        with col4:
-            st.subheader("Mean Face")
-            if 'X_raw' in st.session_state:
-                fig5 = plot_mean_face(st.session_state['X_raw'])
-                st.pyplot(fig5)
-
-# ===================== TAB 3: BANDINGKAN 2 WAJAH =====================
-with tabs[2]:
-    st.header("🔍 Bandingkan Dua Wajah")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        upload1 = st.file_uploader("Upload Wajah 1", type=['jpg','jpeg','png'],
-                                    key="face1")
-        if upload1:
-            img1 = Image.open(upload1)
-            st.image(img1, caption="Wajah 1", use_column_width=True)
-    
-    with col2:
-        upload2 = st.file_uploader("Upload Wajah 2", type=['jpg','jpeg','png'],
-                                    key="face2")
-        if upload2:
-            img2 = Image.open(upload2)
-            st.image(img2, caption="Wajah 2", use_column_width=True)
-    
-    if upload1 and upload2 and 'pca' in st.session_state:
-        if st.button("🔍 Bandingkan", type="primary"):
-            pca = st.session_state['pca']
-            
-            # Convert PIL ke numpy
-            arr1 = np.array(img1.convert('RGB'))
-            arr2 = np.array(img2.convert('RGB'))
-            arr1_bgr = cv2.cvtColor(arr1, cv2.COLOR_RGB2BGR)
-            arr2_bgr = cv2.cvtColor(arr2, cv2.COLOR_RGB2BGR)
-            
-            vec1, detected1 = detect_and_crop_face(image_array=arr1_bgr)
-            vec2, detected2 = detect_and_crop_face(image_array=arr2_bgr)
-            
-            similarity = compare_two_faces(vec1, vec2, pca)
-            
-            st.divider()
-            col_r1, col_r2, col_r3 = st.columns(3)
-            with col_r1:
-                st.metric("Similarity Score", f"{similarity:.4f}")
-            with col_r2:
-                st.metric("Threshold", f"{threshold:.2f}")
-            with col_r3:
-                if similarity >= threshold:
-                    st.success("✅ MIRIP")
-                else:
-                    st.error("❌ TIDAK MIRIP")
-            
-            # Progress bar similarity
-            st.progress(float(similarity), text=f"Similarity: {similarity:.2%}")
-            
-            # Info deteksi wajah
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                icon = "✅" if detected1 else "⚠️"
-                st.info(f"{icon} Wajah 1: "
-                        f"{'terdeteksi' if detected1 else 'fallback ke full image'}")
-            with col_d2:
-                icon = "✅" if detected2 else "⚠️"
-                st.info(f"{icon} Wajah 2: "
-                        f"{'terdeteksi' if detected2 else 'fallback ke full image'}")
-
-# ===================== TAB 4: IDENTIFIKASI =====================
-with tabs[3]:
-    st.header("🎯 Identifikasi Wajah dari Database")
-    
-    upload_id = st.file_uploader("Upload foto wajah untuk diidentifikasi",
-                                  type=['jpg','jpeg','png'], key="identify")
-    
-    if upload_id and 'pca' in st.session_state:
-        img_id = Image.open(upload_id)
-        
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.image(img_id, caption="Foto Input", use_column_width=True)
-        
-        with col2:
-            if st.button("🎯 Identifikasi", type="primary"):
-                pca = st.session_state['pca']
-                X_pca = st.session_state['X_pca']
-                labels = st.session_state['labels']
-                
-                arr = np.array(img_id.convert('RGB'))
-                arr_bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-                vec, detected = detect_and_crop_face(image_array=arr_bgr)
-                
-                name, score, all_sims = recognize_face(
-                    vec, pca, X_pca, labels, threshold
-                )
-                
-                st.subheader("Hasil Identifikasi")
-                if name != "Tidak dikenal":
-                    st.success(f"✅ **{name}** (similarity: {score:.4f})")
-                else:
-                    st.error(f"❌ Tidak dikenal (best score: {score:.4f})")
-                
-                # Top 5 paling mirip
-                unique_labels = list(set(labels))
-                top_idx = np.argsort(all_sims)[::-1][:10]
-                
-                import pandas as pd
-                df_top = pd.DataFrame({
-                    'Person': [labels[i] for i in top_idx],
-                    'Similarity': [all_sims[i] for i in top_idx]
-                }).drop_duplicates('Person').head(5)
-                
-                st.subheader("Top 5 Paling Mirip")
-                st.dataframe(df_top, use_container_width=True)
-
-# ===================== TAB 5: MASA KECIL vs DEWASA =====================
-with tabs[4]:
-    st.header("👶 Foto Masa Kecil vs Foto Dewasa")
-    st.markdown("""
-    Upload foto kamu waktu kecil dan foto kamu sekarang.  
-    Sistem akan menghitung seberapa mirip wajahmu antara dua waktu berbeda.
-    """)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("📸 Foto Masa Kecil")
-        child_photo = st.file_uploader("Upload foto masa kecil",
-                                        type=['jpg','jpeg','png'], key="child")
-        if child_photo:
-            img_child = Image.open(child_photo)
-            st.image(img_child, use_column_width=True)
-    
-    with col2:
-        st.subheader("🧑 Foto Sekarang (Dewasa)")
-        adult_photo = st.file_uploader("Upload foto sekarang",
-                                        type=['jpg','jpeg','png'], key="adult")
-        if adult_photo:
-            img_adult = Image.open(adult_photo)
-            st.image(img_adult, use_column_width=True)
-    
-    if child_photo and adult_photo and 'pca' in st.session_state:
-        if st.button("🔬 Analisis Kemiripan", type="primary"):
-            pca = st.session_state['pca']
-            
-            arr_c = cv2.cvtColor(np.array(img_child.convert('RGB')),
-                                  cv2.COLOR_RGB2BGR)
-            arr_a = cv2.cvtColor(np.array(img_adult.convert('RGB')),
-                                  cv2.COLOR_RGB2BGR)
-            
-            vec_c, det_c = detect_and_crop_face(image_array=arr_c)
-            vec_a, det_a = detect_and_crop_face(image_array=arr_a)
-            
-            similarity = compare_two_faces(vec_c, vec_a, pca)
-            
-            st.divider()
-            st.subheader("📊 Hasil Analisis")
-            
-            cols = st.columns(3)
-            with cols[0]:
-                st.metric("Similarity Score", f"{similarity:.4f}")
-            with cols[1]:
-                st.metric("Persentase Kemiripan", f"{similarity*100:.1f}%")
-            with cols[2]:
-                if similarity >= threshold:
-                    st.success("✅ KEMUNGKINAN ORANG YANG SAMA")
-                else:
-                    st.warning("⚠️ KURANG MIRIP (wajar karena perbedaan usia)")
-            
-            st.progress(float(max(0, similarity)))
-            
-            st.info("""
-            💡 **Catatan:** PCA/SVD sensitif terhadap perubahan fisik akibat pertumbuhan usia.  
-            Nilai similarity yang lebih rendah dari foto orang dewasa adalah hal yang wajar.  
-            Metode deep learning (FaceNet/ArcFace) lebih baik untuk kasus ini.
+"""
+app.py
 =======
-import streamlit as st
+Streamlit App: Verifikasi Wajah dengan Eigenfaces (PCA/SVD)
+
+Diadaptasi dari notebook 'Eigenfaces_Training_Verifikasi_Wajah.ipynb'.
+Karena Streamlit berjalan di server (bukan Colab), upload foto memakai
+st.file_uploader sebagai pengganti google.colab.files.upload(), tapi
+seluruh pipeline pengolahan gambar & perhitungan PCA/kemiripan identik
+dengan notebook aslinya (lihat eigenfaces_utils.py).
+
+Alur:
+1. Upload & latih model dari beberapa foto masa kecil (training)
+2. Upload 1 foto sekarang (query) -> diproyeksikan ke model -> skor kemiripan
+
+Cara menjalankan:
+    streamlit run app.py
+"""
+
 import numpy as np
-import cv2
-from PIL import Image
-import matplotlib.pyplot as plt
-import os
-import joblib
+import streamlit as st
 
-from preprocessing import detect_and_crop_face, load_and_preprocess
-from pca_model import (load_dataset, train_pca, compare_two_faces,
-                       recognize_face, save_model, load_model)
-from eda import (plot_class_distribution, plot_explained_variance,
-                 plot_eigenfaces, plot_pca_scatter, plot_mean_face)
-
-# ===================== CONFIG =====================
-st.set_page_config(
-    page_title="Face Similarity PCA",
-    page_icon="👤",
-    layout="wide"
+from eigenfaces_utils import (
+    buat_figure_eigenfaces,
+    buat_figure_hasil,
+    buat_figure_perbandingan,
+    buat_grid_foto,
+    get_face_cascade,
+    latih_model,
+    proses_satu_foto,
+    verifikasi_foto,
 )
 
-MODEL_PATH = "models/pca_model.pkl"
+st.set_page_config(
+    page_title="Verifikasi Wajah - Eigenfaces",
+    page_icon="🧑‍🦱",
+    layout="wide",
+)
 
-# ===================== SIDEBAR =====================
-st.sidebar.title("⚙️ Konfigurasi")
-n_components = st.sidebar.slider("Jumlah Komponen PCA", 10, 150, 50)
-threshold = st.sidebar.slider("Threshold Similarity", 0.5, 1.0, 0.80, 0.01)
-dataset_path = st.sidebar.text_input("Path Dataset Train", "dataset/Train")
 
-# ===================== MAIN =====================
-st.title("👤 Face Similarity Detection")
-st.markdown("**Metode:** PCA/SVD (Eigenfaces) | **Framework:** Streamlit")
+@st.cache_resource
+def load_cascade():
+    return get_face_cascade()
 
-tabs = st.tabs(["🏋️ Training", "📊 EDA", 
-                "🔍 Bandingkan 2 Wajah", "🎯 Identifikasi Wajah",
-                "👶 Masa Kecil vs Dewasa"])
 
-# ===================== TAB 1: TRAINING =====================
-with tabs[0]:
-    st.header("Training Model PCA")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info(f"Dataset path: `{dataset_path}`")
-        if st.button("🚀 Mulai Training", type="primary"):
-            with st.spinner("Memuat dataset..."):
-                if not os.path.exists(dataset_path):
-                    st.error("Folder dataset tidak ditemukan!")
-                    st.stop()
-                
-                X, labels, paths = load_dataset(dataset_path)
-                st.success(f"✅ Dataset dimuat: {len(X)} gambar, "
-                           f"{len(set(labels))} orang")
-            
-            with st.spinner("Melatih PCA..."):
-                pca, X_pca = train_pca(X, n_components=n_components)
-                save_model(pca, X_pca, labels)
-                
-                st.session_state['pca'] = pca
-                st.session_state['X_pca'] = X_pca
-                st.session_state['labels'] = labels
-                st.session_state['X_raw'] = X
-                
-                total_var = np.sum(pca.explained_variance_ratio_) * 100
-                st.success(f"✅ PCA selesai! Total variance: {total_var:.1f}%")
-    
-    with col2:
-        st.subheader("Info Model")
-        if 'pca' in st.session_state:
-            pca = st.session_state['pca']
-            st.metric("Jumlah Komponen", n_components)
-            st.metric("Total Gambar", len(st.session_state['labels']))
-            st.metric("Total Orang", len(set(st.session_state['labels'])))
-            st.metric("Explained Variance",
-                      f"{np.sum(pca.explained_variance_ratio_)*100:.1f}%")
-        else:
-            # Coba load model tersimpan
-            if os.path.exists(MODEL_PATH):
-                pca, X_pca, labels = load_model(MODEL_PATH)
-                st.session_state['pca'] = pca
-                st.session_state['X_pca'] = X_pca
-                st.session_state['labels'] = labels
-                st.info("Model sebelumnya berhasil dimuat!")
+face_cascade = load_cascade()
 
-# ===================== TAB 2: EDA =====================
-with tabs[1]:
-    st.header("📊 Exploratory Data Analysis")
-    
-    if 'pca' not in st.session_state:
-        st.warning("⚠️ Latih model terlebih dahulu di tab Training!")
+# ---------------------------------------------------------------------------
+# Inisialisasi session state
+# ---------------------------------------------------------------------------
+for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi"]:
+    if key not in st.session_state:
+        st.session_state[key] = None
+
+# ---------------------------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------------------------
+st.sidebar.title("ℹ️ Tentang Aplikasi")
+st.sidebar.markdown(
+    """
+Aplikasi ini mendemonstrasikan **Eigenfaces (PCA/SVD)** untuk verifikasi
+wajah sederhana, diadaptasi dari notebook training & verifikasi wajah.
+
+**Alur kerja:**
+1. Upload beberapa foto masa kecil → latih model
+2. Upload 1 foto sekarang → verifikasi terhadap model
+
+⚠️ *Tujuan edukasi mempelajari PCA/SVD, bukan alat verifikasi identitas
+forensik/hukum.*
+"""
+)
+
+threshold_pct = st.sidebar.slider(
+    "Threshold 'MIRIP' (%)",
+    min_value=50,
+    max_value=95,
+    value=70,
+    step=1,
+    help="Skor kemiripan >= nilai ini dianggap MIRIP (default notebook: 70%).",
+)
+
+if st.session_state.model is not None:
+    m = st.session_state.model
+    st.sidebar.success(
+        f"✅ Model terlatih dari {m['n_foto_training']} foto "
+        f"({m['n_components']} eigenfaces)."
+    )
+    if st.sidebar.button("🔄 Reset Model"):
+        for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi"]:
+            st.session_state[key] = None
+        st.rerun()
+
+st.title('🧑\u200d🦱➡️🧔 Verifikasi Wajah: "Apakah Foto Sekarang Ini Benar-Benar Aku?"')
+st.caption("Metode: PCA / SVD (Eigenfaces) — Training & Verifikasi")
+
+# ---------------------------------------------------------------------------
+# Langkah 1: Upload & Training
+# ---------------------------------------------------------------------------
+st.header("1️⃣ Upload Foto Masa Kecil (Data Training)")
+st.markdown(
+    "Upload **sebebas mungkin** foto masa kecil kamu — **minimal 2 foto** "
+    "(disarankan 3+ supaya model belajar variasi wajahmu dari berbagai sudut/ekspresi/usia)."
+)
+
+uploaded_training = st.file_uploader(
+    "Upload foto masa kecil (boleh pilih banyak file sekaligus)",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True,
+    key="uploader_training",
+)
+
+if st.button("🚀 Proses & Latih Model", disabled=not uploaded_training):
+    if len(uploaded_training) < 2:
+        st.error(
+            "Minimal butuh 2 foto training agar PCA bisa dihitung. "
+            "Silakan upload lebih banyak foto."
+        )
     else:
-        pca = st.session_state['pca']
-        X_pca = st.session_state['X_pca']
-        labels = st.session_state['labels']
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Distribusi Dataset")
-            fig1 = plot_class_distribution(labels)
-            st.plotly_chart(fig1, use_container_width=True)
-        
-        with col2:
-            st.subheader("Explained Variance")
-            fig2 = plot_explained_variance(pca)
-            st.plotly_chart(fig2, use_container_width=True)
-        
-        st.subheader("Scatter Plot Ruang PCA")
-        fig3 = plot_pca_scatter(X_pca, labels)
-        st.plotly_chart(fig3, use_container_width=True)
-        
-        col3, col4 = st.columns(2)
-        with col3:
-            st.subheader("Eigenfaces")
-            if 'X_raw' in st.session_state:
-                fig4 = plot_eigenfaces(pca)
-                st.pyplot(fig4)
-        
-        with col4:
-            st.subheader("Mean Face")
-            if 'X_raw' in st.session_state:
-                fig5 = plot_mean_face(st.session_state['X_raw'])
-                st.pyplot(fig5)
+        if len(uploaded_training) < 3:
+            st.warning(
+                f"Kamu upload {len(uploaded_training)} foto. Disarankan minimal 3 foto "
+                "agar model lebih akurat, tapi proses tetap dilanjutkan."
+            )
 
-# ===================== TAB 3: BANDINGKAN 2 WAJAH =====================
-with tabs[2]:
-    st.header("🔍 Bandingkan Dua Wajah")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        upload1 = st.file_uploader("Upload Wajah 1", type=['jpg','jpeg','png'],
-                                    key="face1")
-        if upload1:
-            img1 = Image.open(upload1)
-            st.image(img1, caption="Wajah 1", use_column_width=True)
-    
-    with col2:
-        upload2 = st.file_uploader("Upload Wajah 2", type=['jpg','jpeg','png'],
-                                    key="face2")
-        if upload2:
-            img2 = Image.open(upload2)
-            st.image(img2, caption="Wajah 2", use_column_width=True)
-    
-    if upload1 and upload2 and 'pca' in st.session_state:
-        if st.button("🔍 Bandingkan", type="primary"):
-            pca = st.session_state['pca']
-            
-            # Convert PIL ke numpy
-            arr1 = np.array(img1.convert('RGB'))
-            arr2 = np.array(img2.convert('RGB'))
-            arr1_bgr = cv2.cvtColor(arr1, cv2.COLOR_RGB2BGR)
-            arr2_bgr = cv2.cvtColor(arr2, cv2.COLOR_RGB2BGR)
-            
-            vec1, detected1 = detect_and_crop_face(image_array=arr1_bgr)
-            vec2, detected2 = detect_and_crop_face(image_array=arr2_bgr)
-            
-            similarity = compare_two_faces(vec1, vec2, pca)
-            
-            st.divider()
-            col_r1, col_r2, col_r3 = st.columns(3)
-            with col_r1:
-                st.metric("Similarity Score", f"{similarity:.4f}")
-            with col_r2:
-                st.metric("Threshold", f"{threshold:.2f}")
-            with col_r3:
-                if similarity >= threshold:
-                    st.success("✅ MIRIP")
-                else:
-                    st.error("❌ TIDAK MIRIP")
-            
-            # Progress bar similarity
-            st.progress(float(similarity), text=f"Similarity: {similarity:.2%}")
-            
-            # Info deteksi wajah
-            col_d1, col_d2 = st.columns(2)
-            with col_d1:
-                icon = "✅" if detected1 else "⚠️"
-                st.info(f"{icon} Wajah 1: "
-                        f"{'terdeteksi' if detected1 else 'fallback ke full image'}")
-            with col_d2:
-                icon = "✅" if detected2 else "⚠️"
-                st.info(f"{icon} Wajah 2: "
-                        f"{'terdeteksi' if detected2 else 'fallback ke full image'}")
+        with st.spinner("Memproses foto & melatih model..."):
+            data_training = []
+            gagal = False
+            for i, file in enumerate(uploaded_training):
+                try:
+                    hasil = proses_satu_foto(file.name, file.getvalue(), face_cascade)
+                except ValueError as e:
+                    st.error(str(e))
+                    gagal = True
+                    break
+                hasil["label"] = f"Kecil {i + 1}"
+                data_training.append(hasil)
 
-# ===================== TAB 4: IDENTIFIKASI =====================
-with tabs[3]:
-    st.header("🎯 Identifikasi Wajah dari Database")
-    
-    upload_id = st.file_uploader("Upload foto wajah untuk diidentifikasi",
-                                  type=['jpg','jpeg','png'], key="identify")
-    
-    if upload_id and 'pca' in st.session_state:
-        img_id = Image.open(upload_id)
-        
-        col1, col2 = st.columns([1, 2])
-        with col1:
-            st.image(img_id, caption="Foto Input", use_column_width=True)
-        
-        with col2:
-            if st.button("🎯 Identifikasi", type="primary"):
-                pca = st.session_state['pca']
-                X_pca = st.session_state['X_pca']
-                labels = st.session_state['labels']
-                
-                arr = np.array(img_id.convert('RGB'))
-                arr_bgr = cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-                vec, detected = detect_and_crop_face(image_array=arr_bgr)
-                
-                name, score, all_sims = recognize_face(
-                    vec, pca, X_pca, labels, threshold
+            if not gagal:
+                model = latih_model(data_training)
+                st.session_state.data_training = data_training
+                st.session_state.model = model
+                # foto sekarang & hasil verifikasi sebelumnya jadi tidak relevan lagi
+                st.session_state.data_sekarang = None
+                st.session_state.hasil_verifikasi = None
+
+        if not gagal:
+            st.success(f"✅ {len(data_training)} foto training berhasil diproses & model dilatih.")
+
+if st.session_state.data_training is not None:
+    data_training = st.session_state.data_training
+    model = st.session_state.model
+
+    with st.expander("📋 Status deteksi wajah per foto", expanded=False):
+        for d in data_training:
+            status = "✅ wajah terdeteksi" if d["face_terdeteksi"] else "⚠️ fallback full image"
+            st.write(f"**{d['label']}** ({d['filename']}): {status}")
+
+    st.subheader("Foto Training Setelah Preprocessing (Grayscale 100×100)")
+    fig_grid = buat_grid_foto(data_training, "Foto Masa Kecil Setelah Preprocessing")
+    st.pyplot(fig_grid)
+
+    st.subheader("Mean Face & Eigenfaces (Hasil Training)")
+    fig_eigen = buat_figure_eigenfaces(model)
+    st.pyplot(fig_eigen)
+
+    with st.expander("📐 Detail Variansi Eigenfaces (untuk laporan)", expanded=False):
+        pca = model["pca"]
+        for i, variansi in enumerate(pca.explained_variance_ratio_):
+            st.write(
+                f"• Eigenface {i + 1} (Komponen Utama {i + 1}): menjelaskan sekitar "
+                f"**{variansi * 100:.2f}%** variansi data."
+            )
+        st.write(
+            f"**Total akumulasi ragam informasi:** "
+            f"{np.sum(pca.explained_variance_ratio_) * 100:.2f}%"
+        )
+
+    with st.expander("🎯 Centroid & Variasi Alami Training", expanded=False):
+        st.write(
+            f"Rata-rata variasi alami antar foto training ke centroid: "
+            f"**{model['skala_variasi']:.4f}**"
+        )
+        st.write("Jarak masing-masing foto training ke centroid:")
+        st.write(np.round(model["intra_dists"], 3))
+
+st.divider()
+
+# ---------------------------------------------------------------------------
+# Langkah 2: Upload & Verifikasi
+# ---------------------------------------------------------------------------
+st.header("2️⃣ Upload Foto Sekarang (Query) & Verifikasi")
+
+if st.session_state.model is None:
+    st.info("⬆️ Latih model dari foto masa kecil terlebih dahulu sebelum verifikasi.")
+else:
+    uploaded_sekarang = st.file_uploader(
+        "Upload 1 foto sekarang",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="uploader_sekarang",
+    )
+
+    if st.button("🔍 Verifikasi", disabled=uploaded_sekarang is None):
+        with st.spinner("Memproses & memproyeksikan foto ke model..."):
+            try:
+                data_sekarang = proses_satu_foto(
+                    uploaded_sekarang.name, uploaded_sekarang.getvalue(), face_cascade
                 )
-                
-                st.subheader("Hasil Identifikasi")
-                if name != "Tidak dikenal":
-                    st.success(f"✅ **{name}** (similarity: {score:.4f})")
-                else:
-                    st.error(f"❌ Tidak dikenal (best score: {score:.4f})")
-                
-                # Top 5 paling mirip
-                unique_labels = list(set(labels))
-                top_idx = np.argsort(all_sims)[::-1][:10]
-                
-                import pandas as pd
-                df_top = pd.DataFrame({
-                    'Person': [labels[i] for i in top_idx],
-                    'Similarity': [all_sims[i] for i in top_idx]
-                }).drop_duplicates('Person').head(5)
-                
-                st.subheader("Top 5 Paling Mirip")
-                st.dataframe(df_top, use_container_width=True)
+                data_sekarang["label"] = "Foto Sekarang"
+                hasil_verifikasi = verifikasi_foto(st.session_state.model, data_sekarang)
+                st.session_state.data_sekarang = data_sekarang
+                st.session_state.hasil_verifikasi = hasil_verifikasi
+            except ValueError as e:
+                st.error(str(e))
 
-# ===================== TAB 5: MASA KECIL vs DEWASA =====================
-with tabs[4]:
-    st.header("👶 Foto Masa Kecil vs Foto Dewasa")
-    st.markdown("""
-    Upload foto kamu waktu kecil dan foto kamu sekarang.  
-    Sistem akan menghitung seberapa mirip wajahmu antara dua waktu berbeda.
-    """)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("📸 Foto Masa Kecil")
-        child_photo = st.file_uploader("Upload foto masa kecil",
-                                        type=['jpg','jpeg','png'], key="child")
-        if child_photo:
-            img_child = Image.open(child_photo)
-            st.image(img_child, use_column_width=True)
-    
-    with col2:
-        st.subheader("🧑 Foto Sekarang (Dewasa)")
-        adult_photo = st.file_uploader("Upload foto sekarang",
-                                        type=['jpg','jpeg','png'], key="adult")
-        if adult_photo:
-            img_adult = Image.open(adult_photo)
-            st.image(img_adult, use_column_width=True)
-    
-    if child_photo and adult_photo and 'pca' in st.session_state:
-        if st.button("🔬 Analisis Kemiripan", type="primary"):
-            pca = st.session_state['pca']
-            
-            arr_c = cv2.cvtColor(np.array(img_child.convert('RGB')),
-                                  cv2.COLOR_RGB2BGR)
-            arr_a = cv2.cvtColor(np.array(img_adult.convert('RGB')),
-                                  cv2.COLOR_RGB2BGR)
-            
-            vec_c, det_c = detect_and_crop_face(image_array=arr_c)
-            vec_a, det_a = detect_and_crop_face(image_array=arr_a)
-            
-            similarity = compare_two_faces(vec_c, vec_a, pca)
-            
-            st.divider()
-            st.subheader("📊 Hasil Analisis")
-            
-            cols = st.columns(3)
-            with cols[0]:
-                st.metric("Similarity Score", f"{similarity:.4f}")
-            with cols[1]:
-                st.metric("Persentase Kemiripan", f"{similarity*100:.1f}%")
-            with cols[2]:
-                if similarity >= threshold:
-                    st.success("✅ KEMUNGKINAN ORANG YANG SAMA")
-                else:
-                    st.warning("⚠️ KURANG MIRIP (wajar karena perbedaan usia)")
-            
-            st.progress(float(max(0, similarity)))
+    if st.session_state.data_sekarang is not None and st.session_state.hasil_verifikasi is not None:
+        model = st.session_state.model
+        data_sekarang = st.session_state.data_sekarang
+        hasil_verifikasi = st.session_state.hasil_verifikasi
+
+        status = "✅ wajah terdeteksi" if data_sekarang["face_terdeteksi"] else "⚠️ fallback full image"
+        st.write(f"**Status deteksi wajah:** {status}")
+
+        st.subheader("Foto Sekarang vs Mean Face Training")
+        fig_compare = buat_figure_perbandingan(model["mean_face_img"], data_sekarang)
+        st.pyplot(fig_compare)
+
+        st.subheader("Hasil Proyeksi & Kemiripan")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Cosine Similarity", f"{hasil_verifikasi['cos_pct']:.2f}%")
+        col2.metric("Euclidean (relatif)", f"{hasil_verifikasi['eucl_pct']:.2f}%")
+        col3.metric("Skor Akhir", f"{hasil_verifikasi['skor_akhir']:.2f}%")
+
+        skor_akhir = hasil_verifikasi["skor_akhir"]
+        mirip = (skor_akhir / 100) >= (threshold_pct / 100)
+        kesimpulan = (
+            "MIRIP ✅ (pola wajah sekarang konsisten dengan foto-foto masa kecil yang ditraining)"
+            if mirip
+            else "TIDAK MIRIP ❌ (pola wajah sekarang menyimpang dari foto-foto masa kecil yang ditraining)"
+        )
+
+        st.subheader("📊 Hasil Verifikasi")
+        st.write(f"Jumlah foto training (masa kecil): **{model['n_foto_training']}**")
+        st.write(f"Persentase kemiripan: **{skor_akhir:.2f}%**")
+        st.write(f"Threshold: **{threshold_pct:.0f}%**")
+        if mirip:
+            st.success(f"Kesimpulan: {kesimpulan}")
+        else:
+            st.error(f"Kesimpulan: {kesimpulan}")
+
+        st.subheader("Visualisasi Persentase Kemiripan")
+        fig_hasil = buat_figure_hasil(skor_akhir, threshold_pct)
+        st.pyplot(fig_hasil)
+
+st.divider()
+st.markdown(
+    """
+### 📝 Catatan Penting Tentang Hasil
+- Aplikasi ini untuk **tujuan edukasi** mempelajari PCA/SVD (Eigenfaces) dalam skema
+  training/verifikasi sederhana, **bukan** alat verifikasi identitas yang sahih secara
+  forensik/hukum.
+- Model ("centroid" + "skala variasi") dibangun **hanya dari foto training masa kecil**;
+  foto sekarang cuma diproyeksikan ke model itu — ini meniru alur *train lalu test* yang benar.
+- Makin banyak & makin beragam foto training (sudut, ekspresi, pencahayaan, rentang usia),
+  makin baik estimasi kemiripannya.
+"""
+)
