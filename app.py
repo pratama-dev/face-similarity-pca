@@ -1,7 +1,6 @@
 import numpy as np
 import streamlit as st
-import streamlit.components.v1 as components # Untuk trik animasi/scroll
-import base64 # Untuk background image jika perlu, atau embed asset
+import streamlit.components.v1 as components
 
 from eigenfaces_utils import (
     buat_figure_eigenfaces,
@@ -15,11 +14,10 @@ from eigenfaces_utils import (
 )
 
 # ===========================================================================
-# 1. Konfigurasi Halaman & Inject CSS Kustom (The Magic Sauce)
+# 1. Konfigurasi Halaman & Inject CSS Kustom (Perbaikan Kontras & Animasi)
 # ===========================================================================
 st.set_page_config(
     page_title="FaceVerify Pro - Eigenfaces",
-    page_icon="🧑‍🦱",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -27,162 +25,223 @@ st.set_page_config(
 def local_css():
     st.markdown("""
     <style>
-        /* Impor Font Modern */
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-        /* Terapkan font ke seluruh app */
         html, body, [class*="css"]  {
-            font-family: 'Poppins', sans-serif;
+            font-family: 'Inter', sans-serif;
         }
 
-        /* Background Halaman */
         .stApp {
-            background-color: #f8faff;
+            background-color: #f9fafb;
         }
 
-        /* Mengubah gaya Sidebar */
+        /* Mewarnai Sidebar Tanpa Elemen AI Generatif */
         [data-testid="stSidebar"] {
-            background-image: linear-gradient(180deg, #2e3192 0%, #1bffff 100%);
-            color: white;
+            background-color: #1e293b;
+            color: #f8fafc;
         }
         [data-testid="stSidebar"] .stMarkdown, [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2 {
-            color: white !important;
-        }
-        /* Slider Kustom di Sidebar */
-        .stSlider [data-baseweb="slider"] {
-            margin-bottom: 25px;
+            color: #f8fafc !important;
         }
 
-        /* Mengubah Gaya Judul Utama */
+        /* Desain Judul Utama Modern */
         .main-title {
             font-weight: 700;
-            color: #1e3a8a;
-            font-size: 3rem !important;
-            margin-bottom: 0px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+            color: #0f172a;
+            font-size: 2.5rem !important;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
         }
         .sub-title {
-            color: #6b7280;
-            font-size: 1.2rem;
-            margin-top: 0px;
-            margin-bottom: 30px;
-        }
-
-        /* -- Gaya KARTU (Card Layout) -- */
-        .custom-card {
-            background-color: white;
-            padding: 30px;
-            border-radius: 20px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-            margin-bottom: 30px;
-            border: 1px solid #e5e7eb;
-            transition: transform 0.3s ease;
-        }
-        .custom-card:hover {
-            transform: translateY(-5px);
-        }
-        .card-header {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #1f2937;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        /* Gaya Khusus Area Upload */
-        [data-testid="stFileUploadDropzone"] {
-            background-color: #eff6ff;
-            border: 2px dashed #3b82f6;
-            border-radius: 15px;
-        }
-
-        /* -- ANIMASI & GAYA TOMBOL UTAMA -- */
-        div.stButton > button:first-child {
-            background: linear-gradient(45deg, #ff00cc, #333399);
-            color: white;
-            font-weight: 600;
+            color: #64748b;
             font-size: 1.1rem;
-            padding: 12px 30px;
-            border-radius: 50px;
-            border: none;
-            box-shadow: 0 4px 15px rgba(51, 51, 153, 0.4);
-            
-            /* Transisi Halus untuk semua properti */
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-            width: 100%;
-            margin-top: 10px;
+            margin-top: 0px;
+            margin-bottom: 32px;
         }
 
-        /* Efek Hover (Mouse di atas) */
-        div.stButton > button:first-child:hover {
-            box-shadow: 0 6px 20px rgba(51, 51, 153, 0.6);
-            transform: translateY(-2px);
-            background: linear-gradient(45deg, #ff00cc, #4a4ae6); /* Sedikit lebih terang */
-            border: none;
-            color: white;
+        /* Langkah Badge Pengganti Emoticon */
+        .step-badge {
+            display: inline-block;
+            background-color: #e0e7ff;
+            color: #4f46e5 !important;
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 6px 16px;
+            border-radius: 9999px;
+            margin-bottom: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
-        /* Efek Active (Saat Dipencet) - Ini yang diminta user */
-        div.stButton > button:first-child:active {
-            transform: translateY(2px) scale(0.98); /* Terlihat mendem */
-            box-shadow: 0 2px 5px rgba(51, 51, 153, 0.5);
-            background: linear-gradient(45deg, #d400ab, #28287a); /* Sedikit lebih gelap */
-            transition: all 0.1s ease; /* Respon cepat saat klik */
+        /* Gaya Kartu Utama - Memaksa Warna Teks Gelap Agar Selalu Terbaca */
+        .custom-card {
+            background-color: #ffffff !important;
+            padding: 32px;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            margin-bottom: 32px;
+            border: 1px solid #e2e8f0;
         }
         
-        /* Tombol Reset di Sidebar */
-        div.stButton > button[kind="secondary"] {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: 1px solid white;
-            border-radius: 10px;
+        /* Mengatasi masalah tulisan putih di dark mode */
+        .custom-card, 
+        .custom-card p, 
+        .custom-card span, 
+        .custom-card sm, 
+        .custom-card div,
+        .custom-card h1, 
+        .custom-card h2, 
+        .custom-card h3 {
+            color: #1e293b !important;
         }
-        div.stButton > button[kind="secondary"]:hover {
-            background: white;
-            color: #2e3192;
-        }
-
-        /* -- Gaya Metrik (Hasil Angka) -- */
-        [data-testid="stMetricValue"] {
+        
+        .card-header {
+            font-size: 1.35rem;
             font-weight: 700;
-            color: #333399;
+            color: #0f172a !important;
+            margin-bottom: 12px;
         }
 
-        /* -- Kartu Hasil Verifikasi (SUCCESS/ERROR Kustom) -- */
-        .result-card-success {
-            background: linear-gradient(135deg, #d4fc79 0%, #96e6a1 100%);
-            padding: 25px;
-            border-radius: 15px;
-            border-left: 10px solid #22863a;
-            color: #155724;
+        /* Area Upload */
+        [data-testid="stFileUploadDropzone"] {
+            background-color: #f8fafc !important;
+            border: 2px dashed #cbd5e1 !important;
+            border-radius: 12px !important;
+        }
+        [data-testid="stFileUploadDropzone"] * {
+            color: #334155 !important;
+        }
+
+        /* Tombol Interaktif dengan Animasi Mekanik */
+        div.stButton > button:first-child {
+            background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
+            color: #ffffff !important;
+            font-weight: 600;
+            font-size: 1rem;
+            padding: 14px 28px;
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            width: 100%;
+            margin-top: 16px;
+        }
+
+        /* Efek Hover */
+        div.stButton > button:first-child:hover {
+            box-shadow: 0 6px 20px rgba(79, 70, 229, 0.45);
+            transform: translateY(-2px);
+            background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
+            border: none;
+        }
+
+        /* Efek Tekan Kebawah Sesuai Permintaan */
+        div.stButton > button:first-child:active {
+            transform: translateY(2px) scale(0.98);
+            box-shadow: 0 2px 4px rgba(79, 70, 229, 0.2);
+            background: linear-gradient(135deg, #3730a3 0%, #2e2685 100%);
+            transition: all 0.05s ease;
+        }
+
+        /* Tabel Data Hasil Analisis */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
             margin-top: 20px;
-            animation: fadeIn 0.5s;
+            margin-bottom: 20px;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #e2e8f0;
+        }
+        .data-table th {
+            background-color: #f1f5f9;
+            color: #475569 !important;
+            font-weight: 600;
+            text-align: left;
+            padding: 14px;
+            font-size: 0.9rem;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .data-table td {
+            padding: 14px;
+            color: #334155 !important;
+            font-size: 0.9rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Komponen Animasi Berjalan Bilah Kemiripan */
+        .similarity-container {
+            background-color: #f8fafc;
+            padding: 20px;
+            border-radius: 12px;
+            margin-top: 20px;
+            border: 1px solid #e2e8f0;
+        }
+        .similarity-label {
+            font-size: 0.9rem;
+            color: #475569 !important;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .progress-bg {
+            background-color: #e2e8f0;
+            border-radius: 9999px;
+            height: 20px;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-bar-fill {
+            background: linear-gradient(90deg, #4f46e5, #10b981);
+            height: 100%;
+            border-radius: 9999px;
+            width: 0%;
+            animation: jalanProgress 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+        @keyframes jalanProgress {
+            to { width: var(--target-width); }
+        }
+        .similarity-value {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #0f172a !important;
+            margin-top: 10px;
+            text-align: right;
+        }
+
+        /* Kartu Hasil Akhir */
+        .result-card-success {
+            background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+            padding: 24px;
+            border-radius: 12px;
+            border-left: 6px solid #16a34a;
+            color: #14532d !important;
+            margin-top: 24px;
+            animation: munculHasil 0.4s ease-out;
         }
         .result-card-fail {
-            background: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 100%);
-            padding: 25px;
-            border-radius: 15px;
-            border-left: 10px solid #cb2431;
-            color: #721c24;
-            margin-top: 20px;
-            animation: fadeIn 0.5s;
+            background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+            padding: 24px;
+            border-radius: 12px;
+            border-left: 6px solid #dc2626;
+            color: #7f1d1d !important;
+            margin-top: 24px;
+            animation: munculHasil 0.4s ease-out;
         }
-        
-        /* Animasi Fade In sederhana */
-        @keyframes fadeIn {
-            0% { opacity: 0; transform: translateY(10px); }
+        @keyframes munculHasil {
+            0% { opacity: 0; transform: translateY(8px); }
             100% { opacity: 1; transform: translateY(0); }
         }
-
     </style>
     """, unsafe_allow_html=True)
 
 local_css()
 
 # ===========================================================================
-# 2. Logika Utama (Tetap dipertahankan)
+# 2. Logika Utama Sistem
 # ===========================================================================
 
 @st.cache_resource
@@ -191,231 +250,249 @@ def load_cascade():
 
 face_cascade = load_cascade()
 
-# Inisialisasi session state
-for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi", "training_done"]:
+for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi"]:
     if key not in st.session_state:
         st.session_state[key] = None
 
 # ---------------------------------------------------------------------------
-# Sidebar (Dipercantik)
+# Sidebar Kontrol Sistem
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown("## ℹ️ FaceVerify Pro")
+    st.markdown("### Informasi Sistem")
     st.markdown(
         """
-        Aplikasi ini menggunakan teknologi **Eigenfaces (PCA/SVD)** untuk membandingkan 
-        apakah wajah Anda sekarang masih mengenali wajah Anda di masa kecil.
-
-        **Cara Pakai:**
-        1. 📸 Upload foto-foto masa kecil (min. 2)
-        2. ⚙️ Latih AI
-        3. 🔍 Upload foto sekarang & verifikasi
-
-        ---
-        <small>⚠️ *Hanya untuk edukasi, bukan verifikasi keamanan hukum.*</small>
+        Aplikasi ini dianalisis menggunakan metode perhitungan matematis 
+        Eigenfaces berbasis PCA dan SVD untuk menguji struktur kemiripan wajah.
+        
+        Sistem bekerja dengan memproyeksikan data gambar baru ke dalam ruang 
+        vektor yang telah dibentuk oleh kumpulan data latihan.
         """, unsafe_allow_html=True
     )
 
     threshold_pct = st.slider(
-        "🎚️ Sensitivitas 'MIRIP' (%)",
+        "Ambang Batas Verifikasi (%)",
         min_value=50,
         max_value=95,
         value=70,
         step=1,
-        help="Semakin tinggi, semakin sulit dianggap mirip.",
+        help="Skor kumulatif yang harus terpenuhi untuk dinyatakan sebagai orang yang sama.",
     )
 
     if st.session_state.model is not None:
         m = st.session_state.model
         st.markdown("---")
-        st.success(
-            f"✅ **AI Terlatih**\n"
-            f"- {m['n_foto_training']} Foto Kecil\n"
-            f"- {m['n_components']} Eigenfaces"
+        st.markdown(
+            f"""
+            <div style="background-color: rgba(255,255,255,0.1); padding: 16px; border-radius: 8px;">
+                <span style="font-weight:600; display:block; margin-bottom:4px;">Model Aktif</span>
+                <small style="display:block;">Data Latihan: {m['n_foto_training']} Berkas</small>
+                <small style="display:block;">Komponen Utama: {m['n_components']} Vektor</small>
+            </div>
+            """, unsafe_allow_html=True
         )
-        if st.button("🔄 Reset Sistem"):
-            for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi", "training_done"]:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Reset Basis Data"):
+            for key in ["model", "data_training", "data_sekarang", "hasil_verifikasi"]:
                 st.session_state[key] = None
             st.rerun()
 
 # ---------------------------------------------------------------------------
-# Konten Utama
+# Header Utama Aplikasi
 # ---------------------------------------------------------------------------
-st.markdown('<h1 class="main-title">Wajah Masa Kecil vs Sekarang</h1>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">Mari buktikan dengan Algoritma Eigenfaces (PCA)</p>', unsafe_allow_html=True)
-
-# Layout Kolom Besar (1. Training, 2. Verification)
-col_train, col_verify = st.columns([1, 1], gap="large")
+st.markdown('<h1 class="main-title">Sistem Analisis Verifikasi Wajah</h1>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">Ekstraksi Komponen Wajah Berbasis Ruang Vektor Eigenfaces</p>', unsafe_allow_html=True)
 
 # ===========================================================================
-# LANGKAH 1: TRAINING (Kolom Kiri)
+# TAHAP 1: PENGUMPULAN DATA LATIHAN
 # ===========================================================================
-with col_train:
-    # Membungkus dalam kartu kustom
-    st.markdown("""
-        <div class="custom-card">
-            <div class="card-header">
-                <span>1️⃣</span> Latih Memori AI (Foto Masa Kecil)
-            </div>
-    """, unsafe_allow_html=True)
-    
-    st.markdown(
-        "Upload minimal **2 foto** masa kecilmu. AI akan mempelajari "
-        "pola wajah dasar kamu."
-    )
+st.markdown(
+    """
+    <div class="custom-card">
+        <div class="step-badge">Tahap 01</div>
+        <div class="card-header">Pendaftaran Struktur Wajah Masa Kecil</div>
+        <p style="margin-bottom: 20px;">Silakan unggah minimal dua buah dokumen foto masa kecil Anda. Sistem akan melakukan 
+        normalisasi gambar untuk mengenali karakteristik dasar geometri wajah Anda secara otomatis.</p>
+    </div>
+    """, unsafe_allow_html=True
+)
 
-    uploaded_training = st.file_uploader(
-        "Pilih foto-foto masa kecil...",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=True,
-        key="uploader_training",
-    )
+# Menempatkan uploader dan tombol di luar elemen HTML agar fungsi Streamlit berjalan normal
+uploaded_training = st.file_uploader(
+    "Pilih dokumen foto masa kecil",
+    type=["jpg", "jpeg", "png"],
+    accept_multiple_files=True,
+    key="uploader_training",
+    label_visibility="collapsed"
+)
 
-    # Styling tombol dipencet ditangani CSS (div.stButton...)
-    train_btn = st.button("🚀 Mulai Latih AI", disabled=not uploaded_training)
+train_btn = st.button("Ekstrak Fitur Wajah", disabled=not uploaded_training)
 
-    if train_btn:
-        if len(uploaded_training) < 2:
-            st.error("⚠️ Butuh minimal 2 foto untuk menghitung PCA.")
-        else:
-            with st.spinner("🧠 AI sedang mempelajari wajah masa kecilmu..."):
-                data_training = []
-                gagal = False
-                for i, file in enumerate(uploaded_training):
-                    try:
-                        hasil = proses_satu_foto(file.name, file.getvalue(), face_cascade)
-                    except ValueError as e:
-                        st.error(str(e))
-                        gagal = True
-                        break
-                    hasil["label"] = f"Kecil {i + 1}"
-                    data_training.append(hasil)
-
-                if not gagal:
-                    model = latih_model(data_training)
-                    st.session_state.data_training = data_training
-                    st.session_state.model = model
-                    st.session_state.data_sekarang = None
-                    st.session_state.hasil_verifikasi = None
-                    st.session_state.training_done = True
-                    st.success("✅ Proses Latihan Selesai!")
-
-    # Penutup Kartu
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    # Hasil Training (Tampilkan di bawah kartu jika ada)
-    if st.session_state.data_training is not None:
-        with st.expander("📋 Lihat Hasil Pemrosesan Wajah (Grayscale)", expanded=True):
-            data_training = st.session_state.data_training
-            model = st.session_state.model
-
-            st.pyplot(buat_grid_foto(data_training, ""))
-            
-            st.markdown("---")
-            st.markdown("**'Wajah Rata-rata' & Fitur Utama (Eigenfaces)**")
-            st.pyplot(buat_figure_eigenfaces(model))
-            
-            with st.expander("🔬 Detail Teknis Data", expanded=False):
-                st.write(f"Variansi Total: {np.sum(model['pca'].explained_variance_ratio_) * 100:.2f}%")
-                st.write(f"Skala Variasi Alami: {model['skala_variasi']:.4f}")
-
-
-# ===========================================================================
-# LANGKAH 2: VERIFIKASI (Kolom Kanan)
-# ===========================================================================
-with col_verify:
-    st.markdown("""
-        <div class="custom-card">
-            <div class="card-header">
-                <span>2️⃣</span> Uji Verifikasi (Foto Sekarang)
-            </div>
-    """, unsafe_allow_html=True)
-
-    if st.session_state.model is None:
-        st.info("👈 Selesaikan Langkah 1 dulu untuk melatih AI.")
+if train_btn:
+    if len(uploaded_training) < 2:
+        st.error("Sistem memerlukan minimal dua berkas foto latihan untuk melakukan kalkulasi matriks ragam.")
     else:
-        uploaded_sekarang = st.file_uploader(
-            "Upload 1 foto Anda sekarang...",
-            type=["jpg", "jpeg", "png"],
-            accept_multiple_files=False,
-            key="uploader_sekarang",
-        )
-
-        verify_btn = st.button("🔍 Verifikasi Wajah", disabled=uploaded_sekarang is None)
-
-        if verify_btn:
-            with st.spinner("🕵️ Membandingkan dengan memori masa kecil..."):
+        with st.spinner("Sistem sedang mengekstraksi matriks komponen utama..."):
+            data_training = []
+            gagal = False
+            for i, file in enumerate(uploaded_training):
                 try:
-                    data_sekarang = proses_satu_foto(
-                        uploaded_sekarang.name, uploaded_sekarang.getvalue(), face_cascade
-                    )
-                    data_sekarang["label"] = "Foto Sekarang"
-                    hasil_verifikasi = verifikasi_foto(st.session_state.model, data_sekarang)
-                    st.session_state.data_sekarang = data_sekarang
-                    st.session_state.hasil_verifikasi = hasil_verifikasi
+                    hasil = proses_satu_foto(file.name, file.getvalue(), face_cascade)
                 except ValueError as e:
                     st.error(str(e))
+                    gagal = True
+                    break
+                hasil["label"] = f"Kecil {i + 1}"
+                data_training.append(hasil)
 
-    # Penutup Kartu
-    st.markdown("</div>", unsafe_allow_html=True)
+            if not gagal:
+                model = latih_model(data_training)
+                st.session_state.data_training = data_training
+                st.session_state.model = model
+                st.session_state.data_sekarang = None
+                st.session_state.hasil_verifikasi = None
+                st.rerun()
 
-    # -----------------------------------------------------------------------
-    # Area Hasil Verifikasi (Colorful & Animated)
-    # -----------------------------------------------------------------------
+# Tampilan Visualisasi Hasil Ekstraksi Tahap 1
+if st.session_state.data_training is not None:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("Hasil Normalisasi Citra Digital (Skala Abu-abu 100x100)")
+    st.pyplot(buat_grid_foto(st.session_state.data_training, ""))
+    
+    st.subheader("Rata-rata Geometri dan Komponen Utama Wajah (Eigenfaces)")
+    st.pyplot(buat_figure_eigenfaces(st.session_state.model))
+
+st.markdown("<br><hr><br>", unsafe_allow_html=True)
+
+# ===========================================================================
+# TAHAP 2: PROSES UJI VERIFIKASI
+# ===========================================================================
+st.markdown(
+    """
+    <div class="custom-card">
+        <div class="step-badge">Tahap 02</div>
+        <div class="card-header">Uji Banding Dokumen Wajah Sekarang</div>
+        <p style="margin-bottom: 20px;">Unggah satu buah foto kondisi terbaru Anda untuk diproyeksikan langsung ke dalam 
+        model ruang vektor masa kecil yang telah terbentuk sebelumnya.</p>
+    </div>
+    """, unsafe_allow_html=True
+)
+
+if st.session_state.model is None:
+    st.info("Silakan selesaikan Tahap 01 terlebih dahulu untuk mengaktifkan fungsi uji banding.")
+else:
+    uploaded_sekarang = st.file_uploader(
+        "Pilih dokumen foto sekarang",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False,
+        key="uploader_sekarang",
+        label_visibility="collapsed"
+    )
+
+    verify_btn = st.button("Jalankan Komparasi Wajah", disabled=uploaded_sekarang is None)
+
+    if verify_btn:
+        with st.spinner("Menghitung koefisien proyeksi jarak euclidean..."):
+            try:
+                data_sekarang = proses_satu_foto(
+                    uploaded_sekarang.name, uploaded_sekarang.getvalue(), face_cascade
+                )
+                data_sekarang["label"] = "Foto Sekarang"
+                hasil_verifikasi = verifikasi_foto(st.session_state.model, data_sekarang)
+                st.session_state.data_sekarang = data_sekarang
+                st.session_state.hasil_verifikasi = hasil_verifikasi
+                st.rerun()
+
+    # Tampilan Output Analisis Tahap 2
     if st.session_state.data_sekarang is not None and st.session_state.hasil_verifikasi is not None:
         model = st.session_state.model
         data_sekarang = st.session_state.data_sekarang
         hasil_verifikasi = st.session_state.hasil_verifikasi
         skor_akhir = hasil_verifikasi["skor_akhir"]
-        
-        # Trik scroll otomatis ke hasil
-        components.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 500);</script>", height=0)
-
-        st.markdown("### 📊 Perbandingan & Skor")
-        
-        # Plot Perbandingan
-        fig_compare = buat_figure_perbandingan(model["mean_face_img"], data_sekarang)
-        st.pyplot(fig_compare)
-
-        # Metrik Berwarna
-        st.markdown("---")
-        c1, c2 = st.columns(2)
-        c1.metric("Skor Kemiripan Akhir", f"{skor_akhir:.2f}%")
-        c2.metric("Threshold Dibutuhkan", f"{threshold_pct:.0f}%")
-
-        # Visualisasi Gauge
-        fig_hasil = buat_figure_hasil(skor_akhir, threshold_pct)
-        st.pyplot(fig_hasil)
-
-        # KESIMPULAN DENGAN KARTU KUSTOM
         mirip = (skor_akhir / 100) >= (threshold_pct / 100)
         
+        # Otomatis geser layar fokus ke hasil analisis
+        components.html("<script>window.parent.document.querySelector('section.main').scrollTo(0, 1200);</script>", height=0)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("Komparasi Visual Terhadap Wajah Rata-rata")
+        st.pyplot(buat_figure_perbandingan(model["mean_face_img"], data_sekarang))
+
+        # Komponen Animasi Berjalan Bilah Kemiripan
+        st.markdown(f"""
+            <div class="similarity-container">
+                <div class="similarity-label">Bilah Kemiripan Dinamis</div>
+                <div class="progress-bg">
+                    <div class="progress-bar-fill" style="--target-width: {skor_akhir}%;"></div>
+                </div>
+                <div class="similarity-value">{skor_akhir:.2f}%</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Tabel Pengolahan Data Hasil Face Similarity
+        st.markdown("### Parameter Hasil Analisis Metrik Wajah")
+        st.markdown(f"""
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Parameter Uji Geometri</th>
+                        <th>Nilai Perhitungan Kelompok</th>
+                        <th>Ambang Batas Pengujian</th>
+                        <th>Status Evaluasi Teknis</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Koefisien Cosine Similarity</td>
+                        <td>{hasil_verifikasi['cos_pct']:.2f}%</td>
+                        <td>{threshold_pct:.0f}%</td>
+                        <td>{"Terpenuhi" if hasil_verifikasi['cos_pct'] >= threshold_pct else "Kurang"}</td>
+                    </tr>
+                    <tr>
+                        <td>Jarak Relatif Euclidean Distance</td>
+                        <td>{hasil_verifikasi['eucl_pct']:.2f}%</td>
+                        <td>{threshold_pct:.0f}%</td>
+                        <td>{"Terpenuhi" if hasil_verifikasi['eucl_pct'] >= threshold_pct else "Kurang"}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Akumulasi Skor Akhir Kombinasi</strong></td>
+                        <td><strong>{skor_akhir:.2f}%</strong></td>
+                        <td><strong>{threshold_pct:.0f}%</strong></td>
+                        <td><strong>{"Lolos Evaluasi" if mirip else "Ditolak"}</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+        """, unsafe_allow_html=True)
+
+        st.subheader("Grafik Posisi Distribusi Ambang Batas")
+        st.pyplot(buat_figure_hasil(skor_akhir, threshold_pct))
+
+        # Keputusan Akhir Sistem Tanpa Emoticon
         if mirip:
             st.markdown(f"""
                 <div class="result-card-success">
-                    <h3 style="color: #155724; margin-top:0;"> HASIL: MIRIP!</h3>
-                    <p>AI mengenali pola wajah masa kecil Anda pada foto sekarang. 
-                    Anda masih terlihat seperti diri Anda yang dulu (konsisten).</p>
-                    <strong style="font-size: 1.2rem;">Skor: {skor_akhir:.2f}%</strong>
+                    <h3 style="margin-top:0;">HASIL EVALUASI: TERVERIFIKASI</h3>
+                    <p>Sistem mendeteksi bahwa pola struktur komponen utama pada wajah sekarang 
+                    memiliki konsistensi matematis yang signifikan dengan data masa kecil Anda.</p>
+                    <strong>Status: Lolos Verifikasi Identitas Diri</strong>
                 </div>
             """, unsafe_allow_html=True)
         else:
             st.markdown(f"""
                 <div class="result-card-fail">
-                    <h3 style="color: #721c24; margin-top:0;"> HASIL: TIDAK MIRIP</h3>
-                    <p>AI menilai pola wajah sekarang terlalu berbeda dengan data latihan masa kecil. 
-                    (Faktor usia, sudut, atau pencahayaan mungkin berpengaruh).</p>
-                    <strong style="font-size: 1.2rem;">Skor: {skor_akhir:.2f}%</strong>
+                    <h3 style="margin-top:0;">HASIL EVALUASI: TIDAK TERVERIFIKASI</h3>
+                    <p>Sistem menemukan deviasi spasial yang terlalu besar antara proyeksi foto wajah sekarang 
+                    terhadap matriks ruang vektor masa kecil Anda.</p>
+                    <strong>Status: Gagal Verifikasi Identitas Diri</strong>
                 </div>
             """, unsafe_allow_html=True)
 
-st.markdown("<br><hr><br>", unsafe_allow_html=True)
+st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown(
     """
-    <div style="text-align: center; color: #6b7280; padding: 20px; background-color: #f1f5f9; border-radius: 10px;">
-        <h4> Catatan Edukasi</h4>
-        Metode Eigenfaces menggunakan analisis statistik (PCA) untuk mencari komponen utama wajah. 
-        Makin banyak & beragam foto training, makin akurat model mengenali variasi wajah Anda.
+    <div style="text-align: center; color: #64748b; padding: 24px; background-color: #f1f5f9; border-radius: 12px; border: 1px solid #e2e8f0;">
+        <span style="font-weight: 600; display: block; margin-bottom: 4px; color: #334155;">Dokumentasi Metode Analisis</span>
+        Aplikasi ini menggunakan teknik reduksi dimensi Principal Component Analysis atau Singular Value Decomposition. 
+        Akurasi perhitungan sangat dipengaruhi oleh variasi sudut pengambilan gambar, intensitas cahaya, serta ekspresi wajah pada objek foto latihan.
     </div>
     <br>
     """, unsafe_allow_html=True
