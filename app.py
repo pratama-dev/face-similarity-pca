@@ -401,6 +401,8 @@ else:
                 st.session_state.data_sekarang = data_sekarang
                 st.session_state.hasil_verifikasi = hasil_verifikasi
                 st.rerun()
+            except ValueError as e:
+                st.error(str(e))
 
     # Tampilan Output Analisis Tahap 2
     if st.session_state.data_sekarang is not None and st.session_state.hasil_verifikasi is not None:
